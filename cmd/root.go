@@ -27,11 +27,11 @@ import (
 )
 
 var cfgFile string
-var applicationConfiguration Configuration
 
 const (
-	Kafka     string = "kafka"
-	Cassandra string = "cassandra"
+	Kafka            string = "kafka"
+	Cassandra        string = "cassandra"
+	ConfigurationKey string = "configuration"
 )
 
 type Configuration struct {
@@ -65,7 +65,7 @@ Author: Sanjay Rawat - https://rawsanj.dev`,
 		return initializeConfigFile()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return initializeApplicationConfiguration()
+		return cmd.Help()
 	},
 }
 
@@ -114,11 +114,7 @@ func initConfig() {
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in.
-	//if err := viper.ReadInConfig(); err == nil {
-	//	fmt.Println("Using config file:", viper.ConfigFileUsed())
-	//} else {
-	//	fmt.Println("Error Reading Config", err)
-	//}
+	_ = viper.ReadInConfig()
 }
 
 // Initialize and create Service Configuration yaml file
@@ -145,7 +141,7 @@ func initializeConfigFile() error {
 
 	viper.Set("application", "setup is a cli tool written in Go to download and install development services.")
 	viper.Set("version", "1.0")
-	viper.Set("configuration", string(marshal))
+	viper.Set(ConfigurationKey, string(marshal))
 	viper.AddConfigPath(home)
 	viper.SetConfigName(".setup")
 	viper.SetConfigType("yml")
@@ -178,26 +174,11 @@ func createApplicationConfig(home string) Configuration {
 	services[Cassandra] = cassandra
 
 	configuration := Configuration{
-		Info:     "you can customize below Configuration to point to an internal url or disable any service",
+		Info:     "Customize below Configuration to point to an internal url or disable any service",
 		Services: services,
 	}
 
 	return configuration
-}
-
-// Read Configuration from $HOME/.setup.yml and marshall & set into applicationConfiguration
-func initializeApplicationConfiguration() error {
-	services := viper.GetString("configuration")
-	if services == "" {
-		return errors.New("configuration initialization failed")
-	}
-	applicationConfiguration = Configuration{}
-
-	err := yaml.Unmarshal([]byte(services), &applicationConfiguration)
-	if err != nil {
-		return errors.New("Error UnMarshalling Configuration. Error: " + err.Error())
-	}
-	return nil
 }
 
 // Check if file exists and is not a directory
