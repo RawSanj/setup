@@ -16,49 +16,72 @@ limitations under the License.
 package cmd
 
 import (
+	"bytes"
+	"com.github/RawSanj/setup/util"
 	"errors"
 	"fmt"
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v2"
+	"os"
+	"strings"
+	"text/template"
 
 	"github.com/spf13/cobra"
 )
 
+const AllKey = "all"
+
+type UrlHolder struct {
+	Version string
+	Scala   string
+}
+
 // installCmd represents the install command
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "install all or select services which you want to be installed",
+	Long: `install all or select services which you want to be installed
+Currently supports various versions of Kafka and Cassandra.
+`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("install called")
 
 		applicationConfiguration, err := initializeApplicationConfiguration()
 		if err != nil {
 			return err
 		}
 
-		fmt.Println("applicationConfiguration", applicationConfiguration)
+		acceptDefaultAndInstall, defaultPromptErr := acceptDefaultAndInstallAllPrompt(&applicationConfiguration)
+		if defaultPromptErr != nil {
+			return defaultPromptErr
+		}
+
+		var servicesToInstall []string
+
+		if acceptDefaultAndInstall {
+			servicesToInstall = defaultServicesToInstall(&applicationConfiguration)
+		} else {
+			servicesToInstall, err = chooseServicesToInstall(&applicationConfiguration)
+			if err != nil {
+				return err
+			}
+		}
+
+		fmt.Println("==> ", applicationConfiguration)
+
+		for _, selectedSvc := range servicesToInstall {
+			err := downloadAndExtract(&applicationConfiguration, selectedSvc)
+			if err != nil {
+				fmt.Println("Error installing service", selectedSvc)
+			}
+		}
+
 		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(installCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// installCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// installCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // Read Configuration from $HOME/.setup.yml and marshall & set into applicationConfiguration
@@ -73,4 +96,163 @@ func initializeApplicationConfiguration() (Configuration, error) {
 		return applicationConfiguration, errors.New("Error UnMarshalling Configuration. Error: " + err.Error())
 	}
 	return applicationConfiguration, nil
+}
+
+func acceptDefaultAndInstallAllPrompt(applicationConfiguration *Configuration) (bool, error) {
+
+	availableServices := make([]string, 0, len(applicationConfiguration.Services))
+
+	for key, service := range applicationConfiguration.Services {
+		if service.IsEnabled {
+			availableServices = append(availableServices, key+":"+service.SelectedVersion)
+		}
+	}
+
+	acceptDefault := false
+	acceptDefaultPrompt := &survey.Confirm{
+		Message: "Accept Default and install All Available Services?",
+		Help:    fmt.Sprintf("Available Services to be installed: %s", availableServices),
+	}
+	acceptDefaultErr := survey.AskOne(acceptDefaultPrompt, &acceptDefault)
+
+	if acceptDefaultErr != nil {
+		return acceptDefault, acceptDefaultErr
+	}
+	return acceptDefault, nil
+}
+
+func defaultServicesToInstall(applicationConfiguration *Configuration) []string {
+
+	servicesToInstall := make([]string, 0, len(applicationConfiguration.Services))
+	for key, service := range applicationConfiguration.Services {
+		if service.IsEnabled {
+			servicesToInstall = append(servicesToInstall, key)
+		}
+	}
+
+	return servicesToInstall
+}
+
+func chooseServicesToInstall(applicationConfiguration *Configuration) ([]string, error) {
+
+	selectedServices, servicesPromptErr := selectServices(applicationConfiguration)
+	if servicesPromptErr != nil {
+		return nil, servicesPromptErr
+	}
+
+	if installAllKeyExists, _ := util.HasElement(selectedServices, AllKey); installAllKeyExists {
+		selectedServices = defaultServicesToInstall(applicationConfiguration)
+	}
+
+	versionPromptErr := selectAndSetServiceVersion(applicationConfiguration, selectedServices)
+	if versionPromptErr != nil {
+		return nil, versionPromptErr
+	}
+
+	return selectedServices, nil
+}
+
+func selectServices(applicationConfiguration *Configuration) ([]string, error) {
+
+	availableServices := make([]string, 0, len(applicationConfiguration.Services)+1)
+	availableServices = append(availableServices, AllKey)
+
+	for key, service := range applicationConfiguration.Services {
+		if service.IsEnabled {
+			availableServices = append(availableServices, key)
+		}
+	}
+
+	var selectedServices []string
+
+	selectedServicesPrompt := &survey.MultiSelect{
+		Message:  "Select Services to be installed",
+		Help:    fmt.Sprintf("Select one or more service from: %s to install", availableServices),
+		Options:  availableServices,
+		PageSize: len(availableServices),
+	}
+
+	selectedServicesErr := survey.AskOne(selectedServicesPrompt, &selectedServices, survey.WithValidator(survey.Required), survey.WithPageSize(10))
+	if selectedServicesErr != nil {
+		return nil, selectedServicesErr
+	}
+
+	return selectedServices, nil
+}
+
+func selectAndSetServiceVersion(applicationConfiguration *Configuration, selectedServices []string) error {
+
+	for _, selectedSvc := range selectedServices {
+		version := ""
+		selectedService := applicationConfiguration.Services[selectedSvc]
+		versionList := getVersionList(&selectedService.Versions)
+		selectVersionPrompt := &survey.Select{
+			Message:  fmt.Sprintf("Select %s version to install", selectedService.Name),
+			Help:     fmt.Sprintf("[%s] versions available for: %s", len(versionList), selectedService.Name),
+			Options:  versionList,
+			PageSize: 10,
+		}
+
+		err := survey.AskOne(selectVersionPrompt, &version)
+		if err != nil {
+			return err
+		}
+		selectedService.SelectedVersion = version
+		applicationConfiguration.Services[selectedSvc] = selectedService
+	}
+	return nil
+}
+
+func getVersionList(versionMap *map[string]VersionMap) []string {
+
+	versions := make([]string, 0, len(*versionMap))
+	for key, _ := range *versionMap {
+		versions = append(versions, key)
+	}
+
+	return versions
+}
+
+func downloadAndExtract(applicationConfiguration *Configuration, selectedService string) error {
+
+	service := applicationConfiguration.Services[selectedService]
+
+	var url = service.UrlTemplate
+
+	if strings.Contains(url, "{{") {
+		t, err := template.New("UrlTemplate").Parse(url)
+		if err != nil {
+			fmt.Println("Error Parsing UrlTemplate for Service", service.Name, "Please correct the url configuration")
+			return err
+		}
+
+		var result bytes.Buffer
+
+		err = t.Execute(&result, service.Versions[service.SelectedVersion])
+		if err != nil {
+			fmt.Println("Error Parsing UrlTemplate for Service", service.Name, "Please correct the url configuration")
+			return err
+		}
+		
+		url = result.String()
+	}
+
+	folderErr := os.MkdirAll(service.InstallationPath, 0755)
+	if folderErr != nil {
+		fmt.Println("Error Creating Installation Directory. Please select proper installation path", "Error is: ", folderErr.Error())
+		return folderErr
+	}
+
+	downloadedFilePath, err := util.DownloadFile(service.InstallationPath, url)
+	if err != nil {
+		fmt.Println("Error Downloading Service", service.Name, "Error is: ", err.Error())
+		return err
+	}
+
+	extractErr := util.ExtractTarGz(downloadedFilePath, service.InstallationPath)
+	if extractErr != nil {
+		return extractErr
+	}
+
+	return nil
 }

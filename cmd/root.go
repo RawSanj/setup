@@ -16,6 +16,7 @@ limitations under the License.
 package cmd
 
 import (
+	"com.github/RawSanj/setup/util"
 	"errors"
 	"fmt"
 	homedir "github.com/mitchellh/go-homedir"
@@ -39,11 +40,17 @@ type Configuration struct {
 	Services map[string]Service `yaml:"services"`
 }
 
+type VersionMap map[string]string
+
 type Service struct {
-	Name             string `yaml:"name"`
-	Url              string `yaml:"url"`
-	InstallationPath string `yaml:"path"`
-	IsEnabled        bool   `yaml:"enabled"`
+	Name             string                `yaml:"name"`
+	UrlTemplate      string                `yaml:"urlTemplate"`
+	InstallationPath string                `yaml:"path"`
+	IsEnabled        bool                  `yaml:"enabled"`
+	Versions         map[string]VersionMap `yaml:"availableVersions"`
+	SelectedVersion  string                `yaml:"defaultVersion"`
+	ActiveVersion    string                `yaml:"activeVersion"`
+	InstalledVersion []string              `yaml:"installedVersion"`
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -129,7 +136,7 @@ func initializeConfigFile() error {
 	}
 
 	// Skip Config and File creation if file already exists
-	if FileExists(filepath.FromSlash(home + "/.setup.yml")) {
+	if util.FileExists(filepath.FromSlash(home + "/.setup.yml")) {
 		return nil
 	}
 
@@ -154,17 +161,34 @@ func initializeConfigFile() error {
 }
 
 // Create Service Configuration which is to be downloaded and installed
-// Add more services here
+// Add more services here in future releases
 func createApplicationConfig(home string) Configuration {
+
+	kafkaVersions := []VersionMap{
+		{"Scala": "2.11", "Version": "1.0.0"}, {"Scala": "2.12", "Version": "1.0.0"}, {"Scala": "2.11", "Version": "1.0.1"}, {"Scala": "2.12", "Version": "1.0.1"}, {"Scala": "2.11", "Version": "1.0.2"}, {"Scala": "2.12", "Version": "1.0.2"},
+		{"Scala": "2.11", "Version": "1.1.0"}, {"Scala": "2.12", "Version": "1.1.0"}, {"Scala": "2.11", "Version": "1.1.1"}, {"Scala": "2.12", "Version": "1.1.1"},
+		{"Scala": "2.11", "Version": "2.0.0"}, {"Scala": "2.12", "Version": "2.0.0"}, {"Scala": "2.11", "Version": "2.0.1"}, {"Scala": "2.12", "Version": "2.0.1"},
+		{"Scala": "2.11", "Version": "2.1.0"}, {"Scala": "2.12", "Version": "2.1.0"}, {"Scala": "2.11", "Version": "2.1.1"}, {"Scala": "2.12", "Version": "2.1.1"},
+		{"Scala": "2.11", "Version": "2.2.0"}, {"Scala": "2.12", "Version": "2.2.0"}, {"Scala": "2.11", "Version": "2.2.1"}, {"Scala": "2.12", "Version": "2.2.1"}, {"Scala": "2.11", "Version": "2.2.2"}, {"Scala": "2.12", "Version": "2.2.2"},
+		{"Scala": "2.11", "Version": "2.3.0"}, {"Scala": "2.12", "Version": "2.3.1"}, {"Scala": "2.11", "Version": "2.3.1"}, {"Scala": "2.12", "Version": "2.3.1"},
+		{"Scala": "2.11", "Version": "2.4.0"}, {"Scala": "2.12", "Version": "2.4.0"}, {"Scala": "2.13", "Version": "2.4.0"}, {"Scala": "2.11", "Version": "2.4.1"}, {"Scala": "2.12", "Version": "2.4.1"}, {"Scala": "2.13", "Version": "2.4.1"},
+		{"Scala": "2.12", "Version": "2.5.0"}, {"Scala": "2.13", "Version": "2.5.0"},
+	}
 	kafka := Service{
 		Name:             Kafka,
-		Url:              "https://downloads.apache.org/kafka/2.5.0/kafka_2.12-2.5.0.tgz",
+		UrlTemplate:      "https://archive.apache.org/dist/kafka/{{.Version}}/kafka_{{.Scala}}-{{.Version}}.tgz",
+		Versions:         createVersionMap(&kafkaVersions),
+		SelectedVersion:  "Version_2.5.0-Scala_2.13",
 		InstallationPath: filepath.FromSlash(home + "/.bin" + "/" + Kafka),
 		IsEnabled:        true,
 	}
+
+	cassandraVersions := []VersionMap{{"Version": "2.1.21"}, {"Version": "2.2.16"}, {"Version": "3.0.20"}, {"Version": "3.11.6"}, {"Version": "4.0-alpha4"}}
 	cassandra := Service{
 		Name:             Cassandra,
-		Url:              "https://downloads.apache.org/cassandra/3.11.6/apache-cassandra-3.11.6-bin.tar.gz",
+		UrlTemplate:      "https://downloads.apache.org/cassandra/{{.Version}}/apache-cassandra-{{.Version}}-bin.tar.gz",
+		Versions:         createVersionMap(&cassandraVersions),
+		SelectedVersion:  "Version_3.11.6",
 		InstallationPath: filepath.FromSlash(home + "/.bin" + "/" + Cassandra),
 		IsEnabled:        true,
 	}
@@ -174,18 +198,27 @@ func createApplicationConfig(home string) Configuration {
 	services[Cassandra] = cassandra
 
 	configuration := Configuration{
-		Info:     "Customize below Configuration to point to an internal url or disable any service",
+		Info:     "Customize below Configuration to point to an internal url, versions or disable any service. When using internal URL with version, make sure url template is proper",
 		Services: services,
 	}
 
 	return configuration
 }
 
-// Check if file exists and is not a directory
-func FileExists(fileName string) bool {
-	stat, err := os.Stat(fileName)
-	if os.IsNotExist(err) {
-		return false
+func createVersionMap(versions *[]VersionMap) map[string]VersionMap {
+	versionMap := make(map[string]VersionMap)
+	for _, version := range *versions {
+		versionKey := ""
+		index := 1
+		for key, val := range version {
+			if index < len(version) {
+				versionKey = versionKey + fmt.Sprintf("%s_%s-", key, val)
+			} else {
+				versionKey = versionKey + fmt.Sprintf("%s_%s", key, val)
+			}
+			index++
+		}
+		versionMap[versionKey] = version
 	}
-	return !stat.IsDir()
+	return versionMap
 }
