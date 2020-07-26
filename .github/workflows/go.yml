@@ -43,14 +43,21 @@ jobs:
         name: setup-binaries
         path: binaries
       
+    - name: Create Pre-Release Name
+      id: vars
+      shell: bash
+      run: |
+        GITHUB_SHA_SHORT=$(echo $GITHUB_SHA | cut -c1-8)
+        echo "::set-output name=sha_short::$GITHUB_SHA_SHORT"
+              
     - name: Create Pre-Release
       id: create_pre_release
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release 0.0.1-alpha
+        tag_name: ${{ steps.vars.outputs.sha_short }}
+        release_name: Release 0.0.1-${{ steps.vars.outputs.sha_short }}
         body: |
           Alpha Release for testing only
         draft: false
