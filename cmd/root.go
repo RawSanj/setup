@@ -32,6 +32,7 @@ var cfgFile string
 const (
 	Kafka            string = "kafka"
 	Cassandra        string = "cassandra"
+	DynamoDb         string = "dynamodb"
 	ConfigurationKey string = "configuration"
 )
 
@@ -64,6 +65,7 @@ Currently it supports the following services:
 	1. Kafka
 	2. Zookeeper
 	3. Cassandra
+	4. DynamoDb
 
 Author: Sanjay Rawat - https://rawsanj.dev`,
 	// Uncomment the following line if your bare application
@@ -141,14 +143,14 @@ func initializeConfigFile() error {
 	}
 
 	configuration := createApplicationConfig(home)
-	marshal, err := yaml.Marshal(&configuration)
+	configurationString, err := marshalConfiguration(&configuration)
 	if err != nil {
-		return errors.New("Error Marshalling Configuration. Error: " + err.Error())
+		return err
 	}
 
 	viper.Set("application", "setup is a cli tool written in Go to download and install development services.")
 	viper.Set("version", "1.0")
-	viper.Set(ConfigurationKey, string(marshal))
+	viper.Set(ConfigurationKey, configurationString)
 	viper.AddConfigPath(home)
 	viper.SetConfigName(".setup")
 	viper.SetConfigType("yml")
@@ -160,63 +162,99 @@ func initializeConfigFile() error {
 	return nil
 }
 
+func marshalConfiguration(configuration *Configuration) (string, error) {
+	marshal, err := yaml.Marshal(&configuration)
+	if err != nil {
+		return "", errors.New("Error Marshalling Configuration. Error: " + err.Error())
+	}
+	return string(marshal), nil
+}
+
+func unMarshalConfiguration(configurationStr string, applicationConfiguration *Configuration) error  {
+	err := yaml.Unmarshal([]byte(configurationStr), &applicationConfiguration)
+	if err != nil {
+		return errors.New("Error UnMarshalling Configuration. Error: " + err.Error())
+	} else {
+		return nil
+	}
+}
+
 // Create Service Configuration which is to be downloaded and installed
 // Add more services here in future releases
 func createApplicationConfig(home string) Configuration {
 
 	kafkaVersions := []VersionMap{
-		{"Scala": "2.11", "Version": "1.0.0"}, {"Scala": "2.12", "Version": "1.0.0"}, {"Scala": "2.11", "Version": "1.0.1"}, {"Scala": "2.12", "Version": "1.0.1"}, {"Scala": "2.11", "Version": "1.0.2"}, {"Scala": "2.12", "Version": "1.0.2"},
-		{"Scala": "2.11", "Version": "1.1.0"}, {"Scala": "2.12", "Version": "1.1.0"}, {"Scala": "2.11", "Version": "1.1.1"}, {"Scala": "2.12", "Version": "1.1.1"},
-		{"Scala": "2.11", "Version": "2.0.0"}, {"Scala": "2.12", "Version": "2.0.0"}, {"Scala": "2.11", "Version": "2.0.1"}, {"Scala": "2.12", "Version": "2.0.1"},
-		{"Scala": "2.11", "Version": "2.1.0"}, {"Scala": "2.12", "Version": "2.1.0"}, {"Scala": "2.11", "Version": "2.1.1"}, {"Scala": "2.12", "Version": "2.1.1"},
-		{"Scala": "2.11", "Version": "2.2.0"}, {"Scala": "2.12", "Version": "2.2.0"}, {"Scala": "2.11", "Version": "2.2.1"}, {"Scala": "2.12", "Version": "2.2.1"}, {"Scala": "2.11", "Version": "2.2.2"}, {"Scala": "2.12", "Version": "2.2.2"},
-		{"Scala": "2.11", "Version": "2.3.0"}, {"Scala": "2.12", "Version": "2.3.1"}, {"Scala": "2.11", "Version": "2.3.1"}, {"Scala": "2.12", "Version": "2.3.1"},
-		{"Scala": "2.11", "Version": "2.4.0"}, {"Scala": "2.12", "Version": "2.4.0"}, {"Scala": "2.13", "Version": "2.4.0"}, {"Scala": "2.11", "Version": "2.4.1"}, {"Scala": "2.12", "Version": "2.4.1"}, {"Scala": "2.13", "Version": "2.4.1"},
-		{"Scala": "2.12", "Version": "2.5.0"}, {"Scala": "2.13", "Version": "2.5.0"},
+		{"Name": "kafka-2.11-1.0.0", "Scala": "2.11", "Version": "1.0.0"}, {"Name": "kafka-2.12-1.0.0", "Scala": "2.12", "Version": "1.0.0"},
+		{"Name": "kafka-2.11-1.0.1", "Scala": "2.11", "Version": "1.0.1"}, {"Name": "kafka-2.12-1.0.1", "Scala": "2.12", "Version": "1.0.1"},
+		{"Name": "kafka-2.11-1.0.2", "Scala": "2.11", "Version": "1.0.2"}, {"Name": "kafka-2.12-1.0.2", "Scala": "2.12", "Version": "1.0.2"},
+		{"Name": "kafka-2.11-1.1.0", "Scala": "2.11", "Version": "1.1.0"}, {"Name": "kafka-2.12-1.1.0", "Scala": "2.12", "Version": "1.1.0"},
+		{"Name": "kafka-2.11-1.1.1", "Scala": "2.11", "Version": "1.1.1"}, {"Name": "kafka-2.12-1.1.1", "Scala": "2.12", "Version": "1.1.1"},
+		{"Name": "kafka-2.11-2.0.0", "Scala": "2.11", "Version": "2.0.0"}, {"Name": "kafka-2.12-2.0.0", "Scala": "2.12", "Version": "2.0.0"},
+		{"Name": "kafka-2.11-2.0.1", "Scala": "2.11", "Version": "2.0.1"}, {"Name": "kafka-2.12-2.0.1", "Scala": "2.12", "Version": "2.0.1"},
+		{"Name": "kafka-2.11-2.1.0", "Scala": "2.11", "Version": "2.1.0"}, {"Name": "kafka-2.12-2.1.0", "Scala": "2.12", "Version": "2.1.0"},
+		{"Name": "kafka-2.11-2.1.1", "Scala": "2.11", "Version": "2.1.1"}, {"Name": "kafka-2.12-2.1.1", "Scala": "2.12", "Version": "2.1.1"},
+		{"Name": "kafka-2.11-2.2.0", "Scala": "2.11", "Version": "2.2.0"}, {"Name": "kafka-2.12-2.2.0", "Scala": "2.12", "Version": "2.2.0"},
+		{"Name": "kafka-2.11-2.2.1", "Scala": "2.11", "Version": "2.2.1"}, {"Name": "kafka-2.12-2.2.1", "Scala": "2.12", "Version": "2.2.1"},
+		{"Name": "kafka-2.11-2.2.2", "Scala": "2.11", "Version": "2.2.2"}, {"Name": "kafka-2.12-2.2.2", "Scala": "2.12", "Version": "2.2.2"},
+		{"Name": "kafka-2.11-2.3.0", "Scala": "2.11", "Version": "2.3.0"}, {"Name": "kafka-2.12-2.3.0", "Scala": "2.12", "Version": "2.3.0"},
+		{"Name": "kafka-2.12-2.3.1", "Scala": "2.12", "Version": "2.3.1"}, {"Name": "kafka-2.11-2.3.1", "Scala": "2.11", "Version": "2.3.1"}, {"Name": "kafka-2.12-2.3.1", "Scala": "2.12", "Version": "2.3.1"},
+		{"Name": "kafka-2.11-2.4.0", "Scala": "2.11", "Version": "2.4.0"}, {"Name": "kafka-2.12-2.4.0", "Scala": "2.12", "Version": "2.4.0"}, {"Name": "kafka-2.13-2.4.0", "Scala": "2.13", "Version": "2.4.0"},
+		{"Name": "kafka-2.11-2.4.1", "Scala": "2.11", "Version": "2.4.1"}, {"Name": "kafka-2.12-2.4.1", "Scala": "2.12", "Version": "2.4.1"}, {"Name": "kafka-2.13-2.4.1", "Scala": "2.13", "Version": "2.4.1"},
+		{"Name": "kafka-2.12-2.5.0", "Scala": "2.12", "Version": "2.5.0"}, {"Name": "kafka-2.13-2.5.0", "Scala": "2.13", "Version": "2.5.0"},
 	}
-	kafka := Service{
+	kafkaService := Service{
 		Name:             Kafka,
 		UrlTemplate:      "https://archive.apache.org/dist/kafka/{{.Version}}/kafka_{{.Scala}}-{{.Version}}.tgz",
 		Versions:         createVersionMap(&kafkaVersions),
-		SelectedVersion:  "Version_2.5.0-Scala_2.13",
+		SelectedVersion:  "kafka-2.13-2.5.0",
 		InstallationPath: filepath.FromSlash(home + "/.bin" + "/" + Kafka),
 		IsEnabled:        true,
 	}
 
-	cassandraVersions := []VersionMap{{"Version": "2.1.21"}, {"Version": "2.2.16"}, {"Version": "3.0.20"}, {"Version": "3.11.6"}, {"Version": "4.0-alpha4"}}
-	cassandra := Service{
+	cassandraVersions := []VersionMap{{"Name": "v2.1.21", "Version": "2.1.21"}, {"Name": "v2.2.17", "Version": "2.2.17"}, {"Name": "v3.0.20", "Version": "3.0.20"}, {"Name": "v3.11.7", "Version": "3.11.7"}, {"Name": "v4.0-beta1", "Version": "4.0-beta1"}}
+	cassandraService := Service{
 		Name:             Cassandra,
 		UrlTemplate:      "https://downloads.apache.org/cassandra/{{.Version}}/apache-cassandra-{{.Version}}-bin.tar.gz",
 		Versions:         createVersionMap(&cassandraVersions),
-		SelectedVersion:  "Version_3.11.6",
+		SelectedVersion:  "v3.11.7",
 		InstallationPath: filepath.FromSlash(home + "/.bin" + "/" + Cassandra),
 		IsEnabled:        true,
 	}
 
+	dynamoDbVersions := []VersionMap{{"Name": "Asia_Pacific_(Mumbai)_Region", "Region": "ap-south-1", "RegionName": "-mumbai"}, {"Name": "Asia_Pacific_(Singapore)_Region", "Region": "ap-southeast-1", "RegionName": "-singapore"},
+		{"Name": "Asia_Pacific_(Tokyo)_Region", "Region": "ap-northeast-1", "RegionName": "-tokyo"}, {"Name": "Europe_(Frankfurt)_Region", "Region": "eu-central-1", "RegionName": "-frankfurt"},
+		{"Name": "South_America_(São_Paulo)_Region", "Region": "sa-east-1", "RegionName": "-sao-paulo"}, {"Name": "US_West_(Oregon)_Region", "Region": "us-west-2", "RegionName": ""}}
+	dynamoDbService := Service{
+		Name:             DynamoDb,
+		UrlTemplate:      "https://s3.{{.Region}}.amazonaws.com/dynamodb-local{{.RegionName}}/dynamodb_local_latest.tar.gz",
+		Versions:         createVersionMap(&dynamoDbVersions),
+		SelectedVersion:  "US_West_(Oregon)_Region",
+		InstallationPath: filepath.FromSlash(home + "/.bin" + "/" + DynamoDb),
+		IsEnabled:        true,
+	}
+
 	services := make(map[string]Service)
-	services[Kafka] = kafka
-	services[Cassandra] = cassandra
+	services[Kafka] = kafkaService
+	services[Cassandra] = cassandraService
+	services[DynamoDb] = dynamoDbService
 
 	configuration := Configuration{
-		Info:     "Customize below Configuration to point to an internal url, versions or disable any service. When using internal URL with version, make sure url template is proper",
+		Info:     "Customize below Configuration to point to an internal url, versions or disable any service. When using internal URL with version, make sure url template is valid",
 		Services: services,
 	}
 
 	return configuration
 }
 
+// TODO: Remove the use of Name and use the key directly
 func createVersionMap(versions *[]VersionMap) map[string]VersionMap {
 	versionMap := make(map[string]VersionMap)
 	for _, version := range *versions {
 		versionKey := ""
-		index := 1
 		for key, val := range version {
-			if index < len(version) {
-				versionKey = versionKey + fmt.Sprintf("%s_%s-", key, val)
-			} else {
-				versionKey = versionKey + fmt.Sprintf("%s_%s", key, val)
+			if key == "Name" {
+				versionKey = val
 			}
-			index++
 		}
 		versionMap[versionKey] = version
 	}

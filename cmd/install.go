@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v2"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -42,7 +42,7 @@ var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "install all or select services which you want to be installed",
 	Long: `install all or select services which you want to be installed
-Currently supports various versions of Kafka and Cassandra.
+Currently supports various versions of Kafka, Cassandra and DynamoDb.
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
@@ -67,13 +67,21 @@ Currently supports various versions of Kafka and Cassandra.
 			}
 		}
 
-		fmt.Println("==> ", applicationConfiguration)
-
 		for _, selectedSvc := range servicesToInstall {
 			err := downloadAndExtract(&applicationConfiguration, selectedSvc)
 			if err != nil {
-				fmt.Println("Error installing service", selectedSvc)
+				fmt.Println("Error installing service", selectedSvc, "Error: ", err.Error())
 			}
+		}
+
+		configurationString, err := marshalConfiguration(&applicationConfiguration)
+		if err != nil {
+			return err
+		}
+		viper.Set(ConfigurationKey, configurationString)
+		err = viper.WriteConfig()
+		if err != nil {
+			return errors.New("Error Writing Config File. Error: " + err.Error())
 		}
 
 		return nil
@@ -86,14 +94,14 @@ func init() {
 
 // Read Configuration from $HOME/.setup.yml and marshall & set into applicationConfiguration
 func initializeApplicationConfiguration() (Configuration, error) {
-	services := viper.GetString(ConfigurationKey)
+	configurationString := viper.GetString(ConfigurationKey)
 	applicationConfiguration := Configuration{}
-	if services == "" {
+	if configurationString == "" {
 		return applicationConfiguration, errors.New("configuration initialization failed")
 	}
-	err := yaml.Unmarshal([]byte(services), &applicationConfiguration)
+	err := unMarshalConfiguration(configurationString, &applicationConfiguration)
 	if err != nil {
-		return applicationConfiguration, errors.New("Error UnMarshalling Configuration. Error: " + err.Error())
+		return applicationConfiguration, err
 	}
 	return applicationConfiguration, nil
 }
@@ -167,7 +175,7 @@ func selectServices(applicationConfiguration *Configuration) ([]string, error) {
 
 	selectedServicesPrompt := &survey.MultiSelect{
 		Message:  "Select Services to be installed",
-		Help:    fmt.Sprintf("Select one or more service from: %s to install", availableServices),
+		Help:     fmt.Sprintf("Select one or more service from: %s to install", availableServices),
 		Options:  availableServices,
 		PageSize: len(availableServices),
 	}
@@ -197,7 +205,7 @@ func selectAndSetServiceVersion(applicationConfiguration *Configuration, selecte
 		if err != nil {
 			return err
 		}
-		selectedService.SelectedVersion = version
+		selectedService.SelectedVersion = addUnderScore(version)
 		applicationConfiguration.Services[selectedSvc] = selectedService
 	}
 	return nil
@@ -207,10 +215,17 @@ func getVersionList(versionMap *map[string]VersionMap) []string {
 
 	versions := make([]string, 0, len(*versionMap))
 	for key, _ := range *versionMap {
-		versions = append(versions, key)
+		versions = append(versions, removeUnderScore(key))
 	}
-
 	return versions
+}
+
+func removeUnderScore(key string) string {
+	return strings.ReplaceAll(key, "_", " ")
+}
+
+func addUnderScore(key string) string {
+	return strings.ReplaceAll(key, " ", "_")
 }
 
 func downloadAndExtract(applicationConfiguration *Configuration, selectedService string) error {
@@ -233,7 +248,7 @@ func downloadAndExtract(applicationConfiguration *Configuration, selectedService
 			fmt.Println("Error Parsing UrlTemplate for Service", service.Name, "Please correct the url configuration")
 			return err
 		}
-		
+
 		url = result.String()
 	}
 
@@ -249,10 +264,22 @@ func downloadAndExtract(applicationConfiguration *Configuration, selectedService
 		return err
 	}
 
-	extractErr := util.ExtractTarGz(downloadedFilePath, service.InstallationPath)
+	extractErr := util.ExtractTarGz(downloadedFilePath, filepath.FromSlash(service.InstallationPath+"/"+service.SelectedVersion))
+	_ = os.Remove(downloadedFilePath)
 	if extractErr != nil {
 		return extractErr
 	}
 
+	updateConfigAfterInstallation(service, applicationConfiguration)
+
 	return nil
+}
+
+func updateConfigAfterInstallation(service Service, applicationConfiguration *Configuration) {
+	if service.ActiveVersion == "" {
+		service.ActiveVersion = service.SelectedVersion
+	}
+
+	service.InstalledVersion = append(service.InstalledVersion, service.SelectedVersion)
+	applicationConfiguration.Services[service.Name] = service
 }
