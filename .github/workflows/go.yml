@@ -8,8 +8,8 @@ on:
 
 jobs:
 
-  build:
-    name: Build
+  build-binaries:
+    name: Build setup binaries
     runs-on: ubuntu-latest
     steps:
 
@@ -36,3 +36,75 @@ jobs:
 
     - name: Test
       run: binaries/setup_linux_amd64 -h
+
+    - name: Publish setup binaries
+      uses: actions/upload-artifact@v2
+      with:
+        name: setup-binaries
+        path: binaries
+      
+    - name: Create Pre-Release
+      id: create_pre_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release 0.0.1-alpha
+        body: |
+          Alpha Release for testing only
+        draft: false
+        prerelease: true
+        
+    - name: Write Upload URL To File
+      run: |
+        echo "${{steps.create_release.outputs.upload_url}}" > upload_url.txt
+    
+    - name: Publish Upload URL File
+      uses: actions/upload-artifact@v2
+      with:
+        name: upload_url.txt
+        path: upload_url.txt            
+    
+        
+  publish-binaries:
+    name: Publish Binaries to Release
+    needs: [build-binaries]
+    strategy:
+      matrix:
+        os: ['linux', 'windows', 'mac']
+        include:
+          - os: 'linux'
+            suffix: 'linux'
+          - os: 'windows'
+            suffix: 'windows.exe'
+          - os: 'mac'
+            suffix: 'darwin'
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Download binaries      
+      uses: actions/download-artifact@v2
+      with:
+        name: setup-binaries
+    - name: Display structure of downloaded files
+      run: ls -R && ls -l binaries
+
+    - name: Get Release URL File
+      uses: actions/download-artifact@v2
+      with:
+        name: upload_url.txt
+    - name: Set Upload URL
+      run: |
+        echo "::set-env name=UPLOAD_URL::$(cat upload_url.txt)"
+
+    - name: Publish binaries to Pre-Release
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+      with:
+        upload_url: ${{env.UPLOAD_URL}}
+        asset_name: 'setup_${{matrix.suffix}}'
+        asset_path: 'binaries/setup_${{matrix.suffix}}'
+        asset_content_type: application/octet-stream        
