@@ -104,7 +104,7 @@ jobs:
         name: upload_url.txt
     - name: Set Upload URL
       run: |
-        echo "::set-env name=UPLOAD_URL::$(cat upload_url.txt)"
+        echo "UPLOAD_URL=$(cat upload_url.txt)" >> $GITHUB_ENV
 
     - name: Publish binaries to Pre-Release
       id: upload-release-asset
