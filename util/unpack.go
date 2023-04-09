@@ -157,7 +157,7 @@ func moveSingleDirToParent(extractDir string) error {
 		oldPath := filepath.FromSlash(extractDir + "/" + files[0].Name())
 
 		// create parent/tmp directory
-		err := os.MkdirAll(filepath.FromSlash(parentDirPath + "/tmp"), 0755)
+		err := os.MkdirAll(filepath.FromSlash(parentDirPath+"/tmp"), 0755)
 		if err != nil {
 			return err
 		}

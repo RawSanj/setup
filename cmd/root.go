@@ -179,7 +179,7 @@ func marshalConfiguration(configuration *Configuration) (string, error) {
 	return string(marshal), nil
 }
 
-func unMarshalConfiguration(configurationStr string, applicationConfiguration *Configuration) error  {
+func unMarshalConfiguration(configurationStr string, applicationConfiguration *Configuration) error {
 	err := yaml.Unmarshal([]byte(configurationStr), &applicationConfiguration)
 	if err != nil {
 		return errors.New("Error UnMarshalling Configuration. Error: " + err.Error())
